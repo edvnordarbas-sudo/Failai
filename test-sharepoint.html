@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="lt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TestList App</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #f3f2f1; display: flex; justify-content: center; align-items: flex-start; padding: 32px 16px; min-height: 100vh; }
+  .card { background: #ffffff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); padding: 32px; width: 100%; max-width: 480px; }
+  h2 { font-size: 18px; font-weight: 600; color: #323130; margin-bottom: 6px; }
+  .subtitle { font-size: 13px; color: #605e5c; margin-bottom: 24px; }
+  label { display: block; font-size: 13px; font-weight: 600; color: #323130; margin-bottom: 6px; }
+  input[type="text"] { width: 100%; padding: 8px 12px; border: 1px solid #8a8886; border-radius: 4px; font-size: 14px; color: #323130; outline: none; transition: border-color 0.15s; margin-bottom: 20px; }
+  input[type="text"]:focus { border-color: #0078d4; box-shadow: 0 0 0 1px #0078d4; }
+  button { width: 100%; padding: 10px; background: #0078d4; color: white; border: none; border-radius: 4px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+  button:hover { background: #106ebe; }
+  button:disabled { background: #c8c6c4; cursor: not-allowed; }
+  .status { margin-top: 16px; padding: 10px 14px; border-radius: 4px; font-size: 13px; display: none; }
+  .status.success { background: #dff6dd; color: #107c10; border-left: 3px solid #107c10; display: block; }
+  .status.error { background: #fde7e9; color: #a80000; border-left: 3px solid #a80000; display: block; }
+  .status.loading { background: #deecf9; color: #0078d4; border-left: 3px solid #0078d4; display: block; }
+  .items-section { margin-top: 28px; border-top: 1px solid #edebe9; padding-top: 20px; }
+  .items-title { font-size: 13px; font-weight: 600; color: #323130; margin-bottom: 12px; }
+  .item { padding: 8px 12px; background: #f3f2f1; border-radius: 4px; font-size: 13px; color: #323130; margin-bottom: 6px; }
+  .empty { font-size: 13px; color: #a19f9d; font-style: italic; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h2>📋 TestList Test App</h2>
+  <p class="subtitle">Įrašo į SharePoint TestList. Testuojam ar veikia embed.</p>
+  <label for="titleInput">Pavadinimas</label>
+  <input type="text" id="titleInput" placeholder="Įvesk tekstą..." />
+  <button id="saveBtn" onclick="saveItem()">Išsaugoti į SharePoint</button>
+  <div id="status" class="status"></div>
+  <div class="items-section">
+    <div class="items-title">Įrašai sąraše:</div>
+    <div id="itemsList"><span class="empty">Kraunama...</span></div>
+  </div>
+</div>
+<script>
+  const SITE_URL = "https://vicigroup.sharepoint.com/sites/dirbtuves";
+  const LIST_NAME = "TestList";
+
+  async function getDigest() {
+    const r = await fetch(`${SITE_URL}/_api/contextinfo`, {
+      method: "POST",
+      headers: { "Accept": "application/json;odata=verbose" },
+      credentials: "include"
+    });
+    const d = await r.json();
+    return d.d.GetContextWebInformation.FormDigestValue;
+  }
+
+  async function saveItem() {
+    const title = document.getElementById("titleInput").value.trim();
+    if (!title) { showStatus("Įvesk tekstą!", "error"); return; }
+    const btn = document.getElementById("saveBtn");
+    btn.disabled = true;
+    showStatus("Saugojama...", "loading");
+    try {
+      const digest = await getDigest();
+      const response = await fetch(
+        `${SITE_URL}/_api/web/lists/getbytitle('${LIST_NAME}')/items`,
+        {
+          method: "POST",
+          headers: {
+            "Accept": "application/json;odata=verbose",
+            "Content-Type": "application/json;odata=verbose",
+            "X-RequestDigest": digest
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            "__metadata": { "type": "SP.Data.TestListListItem" },
+            "Title": title
+          })
+        }
+      );
+      if (response.ok) {
+        showStatus("✅ Išsaugota sėkmingai!", "success");
+        document.getElementById("titleInput").value = "";
+        loadItems();
+      } else {
+        const err = await response.json();
+        showStatus("Klaida: " + (err.error?.message?.value || response.status), "error");
+      }
+    } catch (e) {
+      showStatus("Klaida: " + e.message, "error");
+    }
+    btn.disabled = false;
+  }
+
+  async function loadItems() {
+    try {
+      const r = await fetch(
+        `${SITE_URL}/_api/web/lists/getbytitle('${LIST_NAME}')/items?$select=Title,Created&$orderby=Created desc&$top=10`,
+        { headers: { "Accept": "application/json;odata=verbose" }, credentials: "include" }
+      );
+      const d = await r.json();
+      const items = d.d.results;
+      const el = document.getElementById("itemsList");
+      if (items.length === 0) {
+        el.innerHTML = '<span class="empty">Sąrašas tuščias</span>';
+      } else {
+        el.innerHTML = items.map(i => `<div class="item">${i.Title}</div>`).join("");
+      }
+    } catch (e) {
+      document.getElementById("itemsList").innerHTML = '<span class="empty">Nepavyko užkrauti įrašų</span>';
+    }
+  }
+
+  function showStatus(msg, type) {
+    const el = document.getElementById("status");
+    el.textContent = msg;
+    el.className = "status " + type;
+  }
+
+  loadItems();
+</script>
+</body>
+</html>
